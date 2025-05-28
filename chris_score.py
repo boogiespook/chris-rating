@@ -2,16 +2,47 @@ import sys
 import json
 import requests
 
-class bcolors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+def get_cve_base_score_from_nvd(cve_id):
+    """
+    Fetches CVE data from the NVD API and extracts the baseScore
+    where the source is 'nvd@nist.gov'.
+
+    Returns:
+        float or None: The baseScore if found, otherwise None.
+    """
+    nvd_api_url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}"
+    print(f"Fetching data from: {nvd_api_url}")
+
+    try:
+        response = requests.get(nvd_api_url)
+        response.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
+        data = response.json()
+
+        extracted_base_score = None
+
+        if "vulnerabilities" in data and len(data["vulnerabilities"]) > 0:
+            for vulnerability in data["vulnerabilities"]:
+                if "cve" in vulnerability and "metrics" in vulnerability["cve"] and "cvssMetricV31" in vulnerability["cve"]["metrics"]:
+                    for metric in vulnerability["cve"]["metrics"]["cvssMetricV31"]:
+                        if "source" in metric and metric["source"] == "nvd@nist.gov" and "cvssData" in metric and "baseScore" in metric["cvssData"]:
+                            extracted_base_score = metric["cvssData"]["baseScore"]
+                            return extracted_base_score # Return once found
+        return None # No baseScore found for nvd@nist.gov source
+    except requests.exceptions.HTTPError as err_h:
+        print(f"Http Error: {err_h}")
+        return None
+    except requests.exceptions.ConnectionError as err_c:
+        print(f"Error Connecting: {err_c}")
+        return None
+    except requests.exceptions.Timeout as err_t:
+        print(f"Timeout Error: {err_t}")
+        return None
+    except requests.exceptions.RequestException as err:
+        print(f"Something went wrong with the request: {err}")
+        return None
+    except json.JSONDecodeError:
+        print("Failed to decode JSON response.")
+        return None
 
 def calculate_vulnerability_score(
     is_kev: bool,
@@ -95,7 +126,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     cve_id = sys.argv[1].upper() # Get CVE ID from command line, convert to uppercase for consistency
-    print(f"Processing CVE: {cve_id}\n")
+    print(f"\033[34mProcessing CVE: {cve_id}\033[0m\n")
 
     # 1. Get KEV status from https://kevin.gtfkd.com/kev/exists?cve={cve_id}
     is_kev = False # Default to False if not found or API fails
@@ -128,6 +159,7 @@ if __name__ == "__main__":
         print(f"Error decoding or parsing EPSS JSON for {cve_id}")
 
     # 3. Get CVSS score and CVE severity from https://access.redhat.com/hydra/rest/securitydata/cve/{cve_id}.json
+    print("\n \033[32mRed Hat\033[0m")
     cvss_base_score = 0.0 # Default to 0.0 if not found or API fails
     cve_severity = "unknown" # Default
     redhat_api_url = f"https://access.redhat.com/hydra/rest/securitydata/cve/{cve_id}.json"
@@ -139,12 +171,34 @@ if __name__ == "__main__":
             cvss_base_score = float(redhat_data['cvss3']['cvss3_base_score'])
         if 'threat_severity' in redhat_data:
             cve_severity = redhat_data['threat_severity'].lower()
-        print(f"CVSS Base Score: {cvss_base_score}")
-        print(f"CVE Severity (Red Hat): {cve_severity.capitalize()}")
+        print(f"- CVSS Base Score: {cvss_base_score}")
+        print(f"- CVE Severity: {cve_severity.capitalize()}")
     except requests.exceptions.RequestException as e:
         print(f"Error fetching Red Hat data for {cve_id}: {e}")
     except (json.JSONDecodeError, KeyError):
         print(f"Error decoding or parsing Red Hat JSON for {cve_id}")
+
+    # Get the CVSS Score from NVD
+    print(f"\n \033[32mNVD\033[0m")
+
+    cvss_base_score_nvd = 0.0 # Default to 0.0 if not found or API fails
+    nvd_api_url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}"
+    try:
+        response = requests.get(nvd_api_url)
+        response.raise_for_status()
+        nvd_data = response.json()
+        if "vulnerabilities" in nvd_data and len(nvd_data["vulnerabilities"]) > 0:
+            for vulnerability in nvd_data["vulnerabilities"]:
+                if "cve" in vulnerability and "metrics" in vulnerability["cve"] and "cvssMetricV31" in vulnerability["cve"]["metrics"]:
+                    for metric in vulnerability["cve"]["metrics"]["cvssMetricV31"]:
+                        if "source" in metric and metric["source"] == "nvd@nist.gov" and "cvssData" in metric and "baseScore" in metric["cvssData"]:
+                            cvss_base_score_nvd = metric["cvssData"]["baseScore"]
+
+        print(f"- CVSS Base Score: {cvss_base_score_nvd}")
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching NVD data for {cve_id}: {e}")
+    except (json.JSONDecodeError, KeyError):
+        print(f"Error decoding or parsing NVD JSON for {cve_id}")
 
     # --- CRITICAL DECISION POINT: Mapping CVE Severity to Asset Criticality ---
     # This is a placeholder. In a real system, asset_criticality should come
@@ -176,4 +230,4 @@ if __name__ == "__main__":
         asset_criticality=asset_criticality
     )
 
-    print(f"Common Hierarchical Risk Intelligence Score (CHRIS) for {cve_id}: {final_score}/100")
+    print(f"\033[31mCommon Hierarchical Risk Intelligence Score (CHRIS) for {cve_id}: {final_score}/100\033[0m \n")
