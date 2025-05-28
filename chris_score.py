@@ -2,6 +2,17 @@ import sys
 import json
 import requests
 
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 def calculate_vulnerability_score(
     is_kev: bool,
     cvss_base_score: float,
@@ -152,7 +163,7 @@ if __name__ == "__main__":
         # Default for unknown severity or if Red Hat API didn't provide one
         asset_criticality = 'medium' # A reasonable default for unknown
 
-    print(f"\nAssumed Asset Criticality (based on CVE Severity placeholder): {asset_criticality.capitalize()}")
+    print(f"Assumed Asset Criticality (based on CVE Severity placeholder): {asset_criticality.capitalize()}")
 
     print("-----------------------------------------------------------------\n")
 
